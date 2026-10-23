@@ -120,7 +120,7 @@ function padPlay(i){if(!ctx||!$('padEnable').checked)return;
  // Fade preceding chord before the new chord enters.
  for(const v of [...padVoices])padStopVoice(v,now);
  const preset=PRESETS[$('padSound').value]||PRESETS.warm,osc=[],g=ctx.createGain(),f=ctx.createBiquadFilter();f.type='lowpass';f.frequency.value=+$('padCutoff').value;f.Q.value=.6;g.gain.setValueAtTime(.0001,now);const attack=+$('padAttack').value;g.gain.linearRampToValueAtTime(1,now+attack);
- const out=ctx.createGain();out.gain.value=+$('padVolume').value*.18;f.connect(g);g.connect(out);out.connect(master);
+ const out=ctx.createGain();out.gain.value=+$('padVolume').value*.52;f.connect(g);g.connect(out);out.connect(master);
  for(const n of notes){const o=ctx.createOscillator(),og=ctx.createGain();o.type=preset.wave;o.frequency.value=440*Math.pow(2,(root+n-69)/12);og.gain.value=1/notes.length;o.connect(og);og.connect(f);o.start(now);osc.push(o)}
  let lfo=null;if($('padLfoOn').checked){lfo=ctx.createOscillator();const depth=ctx.createGain();lfo.type='sine';lfo.frequency.value=+$('padLfoRate').value;depth.gain.value=+$('padCutoff').value*(+$('padLfoDepth').value/100)*.65;lfo.connect(depth);depth.connect(f.frequency);lfo.start(now)}
  padVoices.add({osc,g,lfo,ended:false});document.querySelectorAll('.padchord').forEach(el=>el.classList.toggle('playing',+el.dataset.padstep===i));
