@@ -1011,18 +1011,22 @@ machineStep=function(step,when){
 };
 
 
-// v5.8 — Distinct musical introductions; all approved sample engines unchanged.
-// One intro character per new song, with four- or eight-bar entrances.
+// v5.9 — Intro arrangement: first instrument alone for 2–8 full bars.
+// Only the intro arrangement changes; other sections and approved sounds are untouched.
 const introStyles=['PIANO SOLO','GITAARMOTIEF','PAD-OPBOUW','RITMISCHE INTRO'];
-let introStyle=0,introLastBar=-1;
+let introStyle=0,introLastBar=-1,introSoloBars=4,introSecondBars=4,introTotalBars=12;
 const introPreviousChoose=bandChooseModel;
 bandChooseModel=function(){
  introPreviousChoose();
  introStyle=(bandSongCount-1)%introStyles.length;
  introLastBar=-1;
- // Intro length is decided at the start of the song, not during playback.
- songSections[0][1]=(introStyle===2||introStyle===3)?8:4;
- bandModelLabel.textContent+=' · INTRO '+introStyles[introStyle];
+ // The first instrument gets 2–8 bars; further entrances have room to breathe.
+ introSoloBars=2+Math.floor(Math.random()*7);
+ introSecondBars=2+Math.floor(Math.random()*3);
+ const fullBandBars=2+Math.floor(Math.random()*3);
+ introTotalBars=Math.ceil((introSoloBars+introSecondBars+fullBandBars)/4)*4;
+ songSections[0][1]=introTotalBars;
+ bandModelLabel.textContent+=' · INTRO '+introStyles[introStyle]+' · solo '+introSoloBars+' maten';
 };
 const introPreviousLead=autoLeadInstrument;
 autoLeadInstrument=function(section){
@@ -1033,33 +1037,27 @@ const introPreviousMotif=motifPhrase;
 motifPhrase=function(section,bar){
  const plan=introPreviousMotif(section,bar);
  if(section.name!=='INTRO')return plan;
- // A short hint of the chorus theme makes the introduction belong to the song.
  plan.notes=songChorusHook.slice();
- // Different rhythmic openings, without changing the melody engine itself.
  const rhythms=[[[0,8],[4,12]],[[0,6,12],[2,10]],[[4],[0,12]],[[8,12],[4,10,14]]];
  plan.rhythm=rhythms[introStyle][section.local%2].slice();
+ // Pad-led or rhythm-led introductions hold the melodic lead until the second entrance.
+ if((introStyle===2||introStyle===3)&&section.local<introSoloBars)plan.rhythm=[];
  return plan;
 };
 const introPreviousSectionChange=songChangeSection;
 songChangeSection=function(section){
  introPreviousSectionChange(section);
  if(section.name!=='INTRO')return;
- // Only the intro's arrangement is overridden; later sections keep v5.7 settings.
- const levels=[
-  [.00,.00,.08], // piano starts alone, harmony arrives later
-  [.00,.10,.12], // guitar presents a short motif
-  [.00,.00,.24], // pad atmosphere first
-  [.20,.16,.08]  // rhythmic opening
+ // Stage zero: exactly one lead, one pad, or one rhythmic voice.
+ const starts=[
+  [0,0,0],  // piano
+  [0,0,0],  // guitar
+  [0,0,.24], // pad
+  [.20,0,0] // drums
  ][introStyle];
- [['drumVolume',levels[0]],['bassVolume',levels[1]],['padVolume',levels[2]]].forEach(([id,v])=>{$(id).value=String(v);$(id).dispatchEvent(new Event('input'))});
+ [['drumVolume',starts[0]],['bassVolume',starts[1]],['padVolume',starts[2]]].forEach(([id,v])=>{$(id).value=String(v);$(id).dispatchEvent(new Event('input'))});
  if(introStyle===3){
-  // A recognisable beat can precede the melody in the rhythmic intro.
-  for(let j=0;j<64;j++){
-   const b=j%16;
-   patterns[0][j]=b===0;
-   patterns[1][j]=b===8;
-   patterns[3][j]=b===4||b===12;
-  }
+  for(let j=0;j<64;j++){const b=j%16;patterns[0][j]=b===0;patterns[1][j]=false;patterns[3][j]=false;}
   render();
  }
 };
@@ -1069,20 +1067,21 @@ machineStep=function(step,when){
   const bar=Math.floor(step/16),section=songPosition(bar);
   if(section.name==='INTRO'&&introLastBar!==bar){
    introLastBar=bar;
-   const f=section.local/Math.max(1,songSections[0][1]-1);
-   const targets=[
-    [.09,.15,.23], [.10,.19,.20], [.07,.12,.34], [.26,.22,.19]
+   const local=section.local;
+   const phase=local<introSoloBars?0:local<introSoloBars+introSecondBars?1:2;
+   // Phase 0: one instrument. Phase 1: add accompaniment. Phase 2: bass and rhythm.
+   const stages=[
+    [[0,0,0],[0,0,.16],[.12,.18,.22]],
+    [[0,0,0],[0,0,.15],[.14,.19,.22]],
+    [[0,0,.24],[0,.13,.27],[.10,.20,.32]],
+    [[.20,0,0],[.20,.15,0],[.26,.22,.18]]
    ][introStyle];
-   const starts=[
-    [.00,.00,.08], [.00,.10,.12], [.00,.00,.24], [.20,.16,.08]
-   ][introStyle];
-   // Intro section change is executed inside the original step, so schedule
-   // gradual gains just afterwards to avoid being overwritten on bar zero.
+   const levels=stages[phase];
+   // The section handler runs in the original step; apply staged levels just after it.
    machineSchedule(when+.012,()=>{
     if(machineMode!=='auto')return;
     [['drumVolume',0],['bassVolume',1],['padVolume',2]].forEach(([id,i])=>{
-     $(id).value=String(starts[i]+(targets[i]-starts[i])*f);
-     $(id).dispatchEvent(new Event('input'));
+     $(id).value=String(levels[i]);$(id).dispatchEvent(new Event('input'));
     });
    });
   }
