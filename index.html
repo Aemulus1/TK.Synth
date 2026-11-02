@@ -1010,4 +1010,84 @@ machineStep=function(step,when){
  return bandOldStep(step,when);
 };
 
+
+// v5.8 — Distinct musical introductions; all approved sample engines unchanged.
+// One intro character per new song, with four- or eight-bar entrances.
+const introStyles=['PIANO SOLO','GITAARMOTIEF','PAD-OPBOUW','RITMISCHE INTRO'];
+let introStyle=0,introLastBar=-1;
+const introPreviousChoose=bandChooseModel;
+bandChooseModel=function(){
+ introPreviousChoose();
+ introStyle=(bandSongCount-1)%introStyles.length;
+ introLastBar=-1;
+ // Intro length is decided at the start of the song, not during playback.
+ songSections[0][1]=(introStyle===2||introStyle===3)?8:4;
+ bandModelLabel.textContent+=' · INTRO '+introStyles[introStyle];
+};
+const introPreviousLead=autoLeadInstrument;
+autoLeadInstrument=function(section){
+ if(section.name==='INTRO')return introStyle===1?'guitar':'piano';
+ return introPreviousLead(section);
+};
+const introPreviousMotif=motifPhrase;
+motifPhrase=function(section,bar){
+ const plan=introPreviousMotif(section,bar);
+ if(section.name!=='INTRO')return plan;
+ // A short hint of the chorus theme makes the introduction belong to the song.
+ plan.notes=songChorusHook.slice();
+ // Different rhythmic openings, without changing the melody engine itself.
+ const rhythms=[[[0,8],[4,12]],[[0,6,12],[2,10]],[[4],[0,12]],[[8,12],[4,10,14]]];
+ plan.rhythm=rhythms[introStyle][section.local%2].slice();
+ return plan;
+};
+const introPreviousSectionChange=songChangeSection;
+songChangeSection=function(section){
+ introPreviousSectionChange(section);
+ if(section.name!=='INTRO')return;
+ // Only the intro's arrangement is overridden; later sections keep v5.7 settings.
+ const levels=[
+  [.00,.00,.08], // piano starts alone, harmony arrives later
+  [.00,.10,.12], // guitar presents a short motif
+  [.00,.00,.24], // pad atmosphere first
+  [.20,.16,.08]  // rhythmic opening
+ ][introStyle];
+ [['drumVolume',levels[0]],['bassVolume',levels[1]],['padVolume',levels[2]]].forEach(([id,v])=>{$(id).value=String(v);$(id).dispatchEvent(new Event('input'))});
+ if(introStyle===3){
+  // A recognisable beat can precede the melody in the rhythmic intro.
+  for(let j=0;j<64;j++){
+   const b=j%16;
+   patterns[0][j]=b===0;
+   patterns[1][j]=b===8;
+   patterns[3][j]=b===4||b===12;
+  }
+  render();
+ }
+};
+const introPreviousStep=machineStep;
+machineStep=function(step,when){
+ if(machineMode==='auto'&&step%16===0){
+  const bar=Math.floor(step/16),section=songPosition(bar);
+  if(section.name==='INTRO'&&introLastBar!==bar){
+   introLastBar=bar;
+   const f=section.local/Math.max(1,songSections[0][1]-1);
+   const targets=[
+    [.09,.15,.23], [.10,.19,.20], [.07,.12,.34], [.26,.22,.19]
+   ][introStyle];
+   const starts=[
+    [.00,.00,.08], [.00,.10,.12], [.00,.00,.24], [.20,.16,.08]
+   ][introStyle];
+   // Intro section change is executed inside the original step, so schedule
+   // gradual gains just afterwards to avoid being overwritten on bar zero.
+   machineSchedule(when+.012,()=>{
+    if(machineMode!=='auto')return;
+    [['drumVolume',0],['bassVolume',1],['padVolume',2]].forEach(([id,i])=>{
+     $(id).value=String(starts[i]+(targets[i]-starts[i])*f);
+     $(id).dispatchEvent(new Event('input'));
+    });
+   });
+  }
+ }
+ return introPreviousStep(step,when);
+};
+
 </script></body></html>
