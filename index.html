@@ -797,32 +797,25 @@ function rhythmicExpression(plan,slot,section){
 function motifHash(n){let x=(n+motifSeed*1013904223)|0;x^=x>>>16;x=Math.imul(x,0x7feb352d);x^=x>>>15;x=Math.imul(x,0x846ca68b);return (x^(x>>>16))>>>0}
 function motifPhrase(section,bar){
  const cycle=Math.floor(bar/songSections.reduce((n,s)=>n+s[1],0)),phrase=Math.floor(section.local/2);
- const id=cycle+':'+section.index+':'+phrase;
+ const openingTheme=(introOpener==='piano'||introOpener==='guitar')&&(section.name==='INTRO'||(section.name==='STROFE'&&section.index===1));
+ const themePhrase=Math.floor((section.local%8)/2);
+ const id=openingTheme?cycle+':OPENING:'+themePhrase:cycle+':'+section.index+':'+phrase;
  if(motifPlan.has(id))return motifPlan.get(id);
  const chorus=section.name==='REFREIN',intro=section.name==='INTRO',outro=section.name==='OUTRO',bridge=section.name==='BRIDGE';
- const seed=motifHash(section.index*97+phrase*19+cycle*13);
+ const seed=openingTheme?motifHash(401+themePhrase*19+cycle*13):motifHash(section.index*97+phrase*19+cycle*13);
  // A returning chorus keeps its identity but evolves its ending and dynamics.
  const repeat=chorus?Math.max(0,section.index===4?1:section.index===6?2:0):0;
  const rhythm=motifRhythms[(seed+repeat)%motifRhythms.length].slice();
  const notes=(chorus?songChorusHook:songVerseHook).slice();
  const shape=seed%5; // original, sequence, inversion, extension, rhythmic displacement
  const plan={rhythm,notes,shape,repeat,seed,chorus,bridge,intro,outro,feel:rhythmicFeels[(seed+Math.floor(phrase/2))%rhythmicFeels.length]};
- if(intro||outro)plan.rhythm=phrase%2?[4,12]:[2,10];
+ if((intro&&!openingTheme)||outro)plan.rhythm=phrase%2?[4,12]:[2,10];
  if(bridge)plan.rhythm=phrase%2?[2,7,12,14]:[4,10];
- // v6.4.53: first verse develops the opening motif rather than starting a new tune.
- if(section.name==='STROFE'&&section.index===1&&section.local<4&&
-    (introOpener==='piano'||introOpener==='guitar')){
-   const source=introPhrasePatterns[introPhraseStyle]||introPhrasePatterns.melody;
-   plan.rhythm=source[section.local%2].slice();
-   plan.introContinuation=true;
- }
+ // v6.4.55: the introduction and first verse share the actual lead motif plan.
+ // No separate intro melody, no handoff and no second phrase director.
  motifPlan.set(id,plan);return plan;
 }
 function motifNote(plan,slot,bar,section){
- if(plan.introContinuation){
-  const pattern=plan.rhythm;
-  return introThemeMidi(bar,section.local%2,slot,pattern.length);
- }
  const chordIndex=autoChordAt(bar).index,root=padRoots[chordIndex];
  const third=padQualities[chordIndex]==='minor'?3:4;
  // The melody can touch sevenths and ninths, but cadences return to stable tones.
@@ -856,10 +849,10 @@ machineStep=function(currentStep,when){
  if(cycle!==motifCycle){motifPlan.clear();motifCycle=cycle;}
  const plan=motifPhrase(section,bar),slot=plan.rhythm.indexOf(pos);
  // Arrangement gate: mute the lead during pad-only bars, without altering any motif notes or rhythms.
- if(slot<0 || (section.name==='INTRO' && section.local<introSoloBars))return; // v6.4.26: intro motifs have their own phrase director
+ if(slot<0 || (section.name==='INTRO' && section.local<introSoloBars && introOpener!=='piano' && introOpener!=='guitar'))return; // melodic opener starts immediately
  // First half of a two-bar phrase states the motif, second half answers it.
  // Sparse entrances in intro/outro and breathing space at phrase endings.
- if((plan.intro||plan.outro)&&bar%2===1&&slot===0)return;
+ if(((plan.intro&&introOpener!=='piano'&&introOpener!=='guitar')||plan.outro)&&bar%2===1&&slot===0)return;
  if(section.local%2===1&&slot===plan.rhythm.length-2&&plan.seed%3===0)return;
  const note=motifNote(plan,slot,bar,section);autoLastPitch=note;
  const key='autoPiano'+currentStep;
@@ -1507,7 +1500,7 @@ machineStep=function(step,when){
  // A guitar-led song alternates four-bar SOLO and STRUM passages.
  // When a duet already uses guitar, it has priority over strumming.
  if(active&&$('v64Guitar').checked&&!outro){
-  const rhythmRole=!(intro&&section.local<introSoloBars)&&v6420GuitarRole(section)==='strum';
+  const rhythmRole=!intro&&v6420GuitarRole(section)==='strum';
   if(rhythmRole){
    // v6.4.22: six musical strum grooves, with stable phrase-level variation.
    // Step grid is 16 sixteenths per bar. Never alter chord pitches or boundaries.
@@ -1712,7 +1705,7 @@ const introOpenerNames={pad:'PAD',piano:'PIANO',guitar:'GITAAR',bass:'BAS',drums
 const v6425Choose=bandChooseModel;
 bandChooseModel=function(){
   v6425Choose();
-  const candidates=['pad','piano','guitar','bass','drums'].filter(x=>x!==introPreviousOpener);
+  const candidates=['pad','piano','guitar','drums'].filter(x=>x!==introPreviousOpener); // v6.4.54: no repetitive bass-only opening
   introOpener=candidates[machineRand(candidates.length)];
   introPreviousOpener=introOpener;
   if(introOpener==='piano'||introOpener==='guitar')bandCast.primary=introOpener;
@@ -1761,50 +1754,8 @@ const introPhrasePatterns={
  riff:[[0,3,6,10,12],[0,3,7,10,14]],
  harmony:[[0,8],[0,8,12]]
 };
-// v6.4.53 — one melodic idea for the opening and its first verse.
-// Uses the existing intro pattern and shared chord clock; no second sequencer.
-function introThemeMidi(bar,phraseBar,index,count){
- const chord=v64Chord(bar),root=chord.root,third=chord.third;
- const degrees=introPhraseStyle==='riff'?[0,7,third,7,0]:
-  introPhraseStyle==='harmony'?[0,third,7]:[0,third,7,third,0];
- const section=songPosition(bar);
- const phrase=Math.floor(section.local/2);
- const variant=(phrase+introPhraseSeed)%3;
- let degree=degrees[index%degrees.length];
- if(phraseBar===1&&index===count-1)degree=variant===0?7:variant===1?third:0;
- let midi=root+degree+12;
- while(midi<55)midi+=12;
- while(midi>74)midi-=12;
- return midi;
-}
-const introPhraseOldStep=machineStep;
-machineStep=function(step,when){
- introPhraseOldStep(step,when);
- if(machineMode!=='auto'||!running)return;
- const bar=Math.floor(step/16),pos=step%16,section=songPosition(bar);
- if(section.name!=='INTRO'||section.local>=introSoloBars)return;
- if(introOpener!=='piano'&&introOpener!=='guitar')return;
- const pattern=introPhrasePatterns[introPhraseStyle]||introPhrasePatterns.melody;
- const phraseBar=section.local%2,notes=pattern[phraseBar];
- const index=notes.indexOf(pos);
- if(index<0)return;
- // Continue the same motif in the first verse, with the section's shared chords.
- const midi=introThemeMidi(bar,phraseBar,index,notes.length);
- const beat=60/Math.max(50,Math.min(220,+$('bpm').value||120));
- const next=notes[index+1]??16;
- const duration=Math.max(.18,Math.min(beat*1.5,(next-pos)*beat/4*.91));
- const key='introPhrase'+step;
- machineSchedule(when,()=>{
-  if(introOpener==='guitar')guitarOn(midi,key,.73);
-  else pianoSampleOn(midi,key,.75);
-  const id=setTimeout(()=>{machineTimers.delete(id);
-   if(introOpener==='guitar')guitarOff(key,midi);
-   else pianoSampleOff(key,midi);
-  },duration*1000);
-  machineTimers.add(id);
- });
-};
-
+// v6.4.55 — Opening melodies now come directly from motifPhrase / machineStep.
+// The former introThemeMidi and extra machineStep scheduler were removed.
 
 // v6.4.27: The composer occasionally chooses a complete Ambient/Chilltrance song.
 // No manual genre selector. All original pop/jazz modules are left unchanged.
