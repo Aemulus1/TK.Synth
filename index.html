@@ -2174,30 +2174,31 @@ pianoSampleOn=function(midi,key,expression=1,duration){
  const startButton=document.getElementById('composerSimpleStart');
  const stopButton=document.getElementById('composerSimpleStop');
  let jumping=false;
- let phase=0,last=0,shown=0;
- let antSpeed=0.5; // Intro: een sprong per twee tellen.
- ant.src=frames[0]; // Stilstaand eerste beeldje vóór START en na STOP.
- startButton.addEventListener('click',()=>{jumping=true;phase=0;shown=0;antSpeed=0.5;ant.src=frames[0];});
- stopButton.addEventListener('click',()=>{jumping=false;phase=0;shown=0;ant.src=frames[0];});
+ let beatPhase=0,last=0,shown=0;
+ ant.src=frames[0];
+ startButton.addEventListener('click',()=>{jumping=true;beatPhase=0;shown=0;ant.src=frames[0];});
+ stopButton.addEventListener('click',()=>{jumping=false;beatPhase=0;shown=0;ant.src=frames[0];});
  function animate(now){
    if(!last)last=now;
    const elapsed=Math.min(0.1,Math.max(0,(now-last)/1000));
    last=now;
-   const bpm=Math.max(50,Math.min(220,Number(bpmInput.value)||120));
+   let frame=0;
    if(jumping){
-     // Volg de echte songsecties van de componist; geen afzonderlijke tijdschatting.
+     const bpm=Math.max(50,Math.min(220,Number(bpmInput.value)||120));
+     // Lees de daadwerkelijke sectie die de componist momenteel speelt.
      let sectionName='INTRO';
      try{
        if(songSectionIndex>=0 && songSections[songSectionIndex]){
          sectionName=String(songSections[songSectionIndex][0]).toUpperCase();
        }
      }catch(e){}
-     const targetSpeed=(sectionName==='INTRO'||sectionName==='OUTRO')?0.5:1;
-     // Zachte overgang in ongeveer een halve seconde, zonder de muziekklok te wijzigen.
-     antSpeed+=(targetSpeed-antSpeed)*Math.min(1,elapsed*5);
-     phase=(phase+elapsed*bpm/60*antSpeed)%1;
+     const quiet=(sectionName==='INTRO'||sectionName==='OUTRO');
+     // Dezelfde zes beelden, maar een duidelijk verschil in sprongen:
+     // intro/outro: 1 volledige sprong op tel 1, daarna 1 tel rust;
+     // overige secties: op elke tel een volledige sprong.
+     beatPhase=(beatPhase+elapsed*bpm/60)%(quiet?2:1);
+     frame=quiet && beatPhase>=1 ? 0 : Math.min(5,Math.floor(beatPhase*6));
    }
-   const frame=Math.min(5,Math.floor(phase*6));
    if(frame!==shown){ant.src=frames[frame];shown=frame;}
    requestAnimationFrame(animate);
  }
