@@ -1828,9 +1828,7 @@ async function v64Load(kind){if(v64Buffers.has(kind))return v64Buffers.get(kind)
 }
 function v64Schedule(when,fn){const id=setTimeout(()=>{v64Timers.delete(id);if(running&&machineMode==='auto')fn()},Math.max(0,(when-ctx.currentTime)*1000));v64Timers.add(id)}
 function v64Play(kind,midi,duration,level=.2){
- // v6.4.9: the low violin register uses the closer viola sample instead of
- // forcing the high violin recording far below its natural pitch.
- if(kind==='violin'){midi-=12;}
+ // WAV-viool: oorspronkelijke notenhoogte; één octaaf hoger dan de eerdere -12-transpositie.
  const voice={ended:false,src:null,g:null};v64Voices.add(voice);
  v64Load(kind).then(buffer=>{
   if(voice.ended||!running||machineMode!=='auto'){v64Voices.delete(voice);return}
